@@ -1,3 +1,5 @@
+import org.codehaus.groovy.runtime.InvokerHelper
+
 /**
  * @author yaroslavTir
  */
@@ -6,15 +8,19 @@ class PrepareReqIf {
     def extIdToFolderId = [:]
     private String inFile
     private String outFile
+    private Boolean pretty
 
-    PrepareReqIf(String inFile, String outFile) {
+    PrepareReqIf(String inFile, String outFile, def pretty) {
         this.inFile = inFile
         this.outFile = outFile
+        this.pretty = pretty
     }
 
     public static void main(String[] args) {
-        def prepareReqIf = new PrepareReqIf(args[0], "out.xml")
+        Boolean pretty = false;
+        if (args.length > 1) pretty = args[1].toBoolean()
 
+        def prepareReqIf = new PrepareReqIf(args[0], "out.xml", pretty)
         Node xml = prepareReqIf.open()
         prepareReqIf.execute(xml)
         prepareReqIf.save(xml)
@@ -110,7 +116,7 @@ class PrepareReqIf {
         }
     }
 
-    private def  createNewLongName(longName, desc) {
+    private def createNewLongName(longName, desc) {
         def path = (desc - ~/(\w+)[^\/]*$$/)[0..-2]
         "${longName} (${path})"
     }
@@ -122,7 +128,17 @@ class PrepareReqIf {
 
     private save(Node xml) {
         def xmlOutput = new StringWriter()
-        new XmlNodePrinter(new PrintWriter(xmlOutput)).print(xml)
-        new File(outFile).write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlOutput.toString())
+        if (pretty){
+            new XmlNodePrinter(new PrintWriter(xmlOutput)).print(xml)
+        } else {
+            new XmlNodePrinter(new IndentPrinter(new PrintWriter(xmlOutput),"", false)){
+                @Override
+                protected void printSimpleItem(Object value) {
+                    super.printSimpleItem(InvokerHelper.toString(value).trim())
+                }
+            }.print(xml)
+        }
+        def xmlString = xmlOutput.toString();
+        new File(outFile).write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlString, 'utf-8')
     }
 }
