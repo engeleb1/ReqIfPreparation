@@ -1,6 +1,6 @@
 ## Description 
 
-Script that set LONF_NAME of SPECIFICATION tag according with doors folder structure.
+Script that set LONG_NAME of SPECIFICATION tag according with doors folder structure.
 
 ## install groovy
 

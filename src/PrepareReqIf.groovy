@@ -122,23 +122,22 @@ class PrepareReqIf {
     }
 
     private Node open() {
-        def xml = new XmlParser().parse(inFile)
+        def parser = new XmlParser(false, false)
+        parser.setKeepIgnorableWhitespace(false) //true leads to significantly higher memory consumption
+        def xml = parser.parse(inFile)
+        println xml.attributes()
         xml
     }
 
     private save(Node xml) {
-        def xmlOutput = new StringWriter()
+        def xmlOutput = new PrintWriter("out.xml", "UTF-8")
+        xmlOutput.println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
         if (pretty){
-            new XmlNodePrinter(new PrintWriter(xmlOutput)).print(xml)
+            new XmlNodePrinter(xmlOutput).print(xml)
         } else {
-            new XmlNodePrinter(new IndentPrinter(new PrintWriter(xmlOutput),"", false)){
-                @Override
-                protected void printSimpleItem(Object value) {
-                    super.printSimpleItem(InvokerHelper.toString(value).trim())
-                }
-            }.print(xml)
+            def nodePrinter = new XmlNodePrinter(new IndentPrinter(xmlOutput, "", true))
+            nodePrinter.print(xml)
         }
-        def xmlString = xmlOutput.toString();
-        new File(outFile).write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlString, 'utf-8')
+        xmlOutput.close();
     }
 }
