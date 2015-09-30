@@ -5,7 +5,6 @@ import org.codehaus.groovy.runtime.InvokerHelper
  */
 class PrepareReqIf {
 
-    def extIdToFolderId = [:]
     private String inFile
     private String outFile
     private Boolean pretty
@@ -27,57 +26,67 @@ class PrepareReqIf {
     }
 
     private execute(xml) {
-        def extIdToFolder = fillFolderData(xml)
-        def extIdToSpec = fillSpecificationData(xml)
-        def extFolderIdToExtSpecId = fillFolderSpecAssciationData(xml)
-        def specFolderPairs = createSpecFolderPairs(extFolderIdToExtSpecId, extIdToFolder, extIdToSpec)
+        def coreToSpecObject = fillCoreToSpecObjectMap(xml)
+        def specObjectIdToFolder = fillFolderData(xml, coreToSpecObject)
+        def specObjectToSpec = fillSpecificationData(xml)
+        def specFolderPairs = createSpecFolderPairs(specObjectIdToFolder, specObjectToSpec)
         replace(specFolderPairs)
     }
 
-    private def fillFolderData(xml) {
-        getFoldersHierarchy(xml."TOOL-EXTENSIONS"."REQ-IF-TOOL-EXTENSION"."rm:FOLDER-HIERARCHY")
-        def folders = xml."TOOL-EXTENSIONS"."REQ-IF-TOOL-EXTENSION"."rm:FOLDERS"."rm:FOLDER"
+    private def fillFolderData(xml, coreToSpecObject) {
+        def specObjectIdToFolder = [:] 
+        getFoldersHierarchy(xml."TOOL-EXTENSIONS"."REQ-IF-TOOL-EXTENSION"."rm:FOLDER-HIERARCHY", loadIdToFolder(xml), coreToSpecObject, specObjectIdToFolder)
+        specObjectIdToFolder
+    }
+    
+    private loadIdToFolder(xml) {
         def folderIdToFolder = [:];
+        def folders = xml."TOOL-EXTENSIONS"."REQ-IF-TOOL-EXTENSION"."rm:FOLDERS"."rm:FOLDER"
         folders.each { folder ->
             folderIdToFolder.put(folder."@IDENTIFIER", folder)
         }
-
-        def map = [:]
-        extIdToFolderId.each { extId, folderId ->
-            def folder = folderIdToFolder[folderId]
-            map.put(extId, folder);
-        }
-        map
+        folderIdToFolder
     }
 
 
-    private void getFoldersHierarchy(hierarchy) {
+    private void getFoldersHierarchy(hierarchy, folderIdToFolder, coreToSpecObject, specObjectIdToFolder) {
         def folderId = hierarchy."rm:OBJECT"."rm:FOLDER-REF".text()
-        def children = hierarchy."rm:CHILDREN"
-        children.each {
-            getFoldersChildren(children, folderId)
+        def folder = folderIdToFolder[folderId]
+        if(folder) {
+            def children = hierarchy."rm:CHILDREN"
+            println "Processing ${children.size()} children of ${folder."@DESC"}"
+            children.each {
+                processFoldersChildren(children, folderIdToFolder, folder, coreToSpecObject, specObjectIdToFolder)
+            }
+        } else {
+            println "Folder with ID ${folderId} is unknown."
         }
     }
 
-    private void getFoldersChildren(children, folderId) {
+    private void processFoldersChildren(children, folderIdToFolder, folder, coreToSpecObject, specObjectIdToFolder) {
         def objects = children."rm:OBJECT"."rm:SPEC-OBJECT-REF"
-        objects.each {
-            extIdToFolderId.put(it.text(), folderId)
+        objects.take(1).each {
+            def specObjectId = coreToSpecObject[it.text()]
+            if(specObjectId) {
+                specObjectIdToFolder.put(specObjectId, folder)
+            } else {
+                println "ERROR: Failed to load ID of Spec Object with core ID ${it.text()}."
+            }
         }
         def hierarchy = children."rm:FOLDER-HIERARCHY"
         hierarchy.each {
-            getFoldersHierarchy(it)
+            getFoldersHierarchy(it, folderIdToFolder, coreToSpecObject, specObjectIdToFolder)
         }
     }
 
-    private def fillFolderSpecAssciationData(xml) {
+    private def fillCoreToSpecObjectMap(xml) {
         def extens = xml."TOOL-EXTENSIONS"."REQ-IF-TOOL-EXTENSION"."rm:ARTIFACT-EXTENSIONS"."rm:SPEC-OBJECT-EXTENSION"
         def map = [:]
         extens.each { exten ->
-            def folder = exten."rm:CORE-SPEC-OBJECT-REF"?.text()
-            if (folder) {
-                def spec = exten."SPEC-OBJECT-REF"?.text()
-                map.put(folder, spec)
+            def coreId = exten."rm:CORE-SPEC-OBJECT-REF"?.text()
+            if (coreId) {
+                def specObjectId = exten."SPEC-OBJECT-REF"?.text()
+                map.put(coreId, specObjectId)
             }
         }
         map
@@ -85,6 +94,7 @@ class PrepareReqIf {
 
     private def fillSpecificationData(xml) {
         def specs = xml."CORE-CONTENT"."REQ-IF-CONTENT"."SPECIFICATIONS"."SPECIFICATION"
+        println "Found ${specs.size()} specification(s)."
         def map = [:]
         specs.each { spec ->
             spec."CHILDREN"."SPEC-HIERARCHY"."OBJECT"."SPEC-OBJECT-REF".each {
@@ -94,13 +104,15 @@ class PrepareReqIf {
         map
     }
 
-    private def createSpecFolderPairs(extFolderIdToExtSpecId, extIdToFolder, extIdToSpec) {
+    private def createSpecFolderPairs(specObjectIdToFolder, specObjectToSpec) {
         def specFolderPairs = [:]
-        extFolderIdToExtSpecId.each { folderId, specId ->
-            def folder = extIdToFolder[folderId]
-            def spec = extIdToSpec[specId]
+        println "Processing ${specObjectIdToFolder.size()} folder(s)."
+        specObjectIdToFolder.each { specObjectId, folder ->
+            def spec = specObjectToSpec[specObjectId]
             if (folder && spec) {
                 specFolderPairs.put(spec, folder)
+            } else if(folder) {
+                println "No specification found for folder ${folder.@DESC} and Spec Object ID ${specObjectId}."
             }
         }
         specFolderPairs
@@ -125,7 +137,6 @@ class PrepareReqIf {
         def parser = new XmlParser(false, false)
         parser.setKeepIgnorableWhitespace(false) //true leads to significantly higher memory consumption
         def xml = parser.parse(inFile)
-        println xml.attributes()
         xml
     }
 
