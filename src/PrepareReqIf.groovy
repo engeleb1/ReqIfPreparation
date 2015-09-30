@@ -8,6 +8,8 @@ class PrepareReqIf {
     private String inFile
     private String outFile
     private Boolean pretty
+    private specObjectToSpec = [:]
+    
 
     PrepareReqIf(String inFile, String outFile, def pretty) {
         this.inFile = inFile
@@ -26,17 +28,12 @@ class PrepareReqIf {
     }
 
     private execute(xml) {
-        def coreToSpecObject = fillCoreToSpecObjectMap(xml)
-        def specObjectIdToFolder = fillFolderData(xml, coreToSpecObject)
-        def specObjectToSpec = fillSpecificationData(xml)
-        def specFolderPairs = createSpecFolderPairs(specObjectIdToFolder, specObjectToSpec)
-        replace(specFolderPairs)
+        def idToSpec = loadSpecificationData(xml)
+        processFolders(xml, idToSpec)
     }
 
-    private def fillFolderData(xml, coreToSpecObject) {
-        def specObjectIdToFolder = [:] 
-        getFoldersHierarchy(xml."TOOL-EXTENSIONS"."REQ-IF-TOOL-EXTENSION"."rm:FOLDER-HIERARCHY", loadIdToFolder(xml), coreToSpecObject, specObjectIdToFolder)
-        specObjectIdToFolder
+    private def processFolders(xml, idToSpec) {
+        getFoldersHierarchy(xml."TOOL-EXTENSIONS"."REQ-IF-TOOL-EXTENSION"."rm:FOLDER-HIERARCHY", loadIdToFolder(xml), idToSpec)
     }
     
     private loadIdToFolder(xml) {
@@ -48,74 +45,45 @@ class PrepareReqIf {
         folderIdToFolder
     }
 
-
-    private void getFoldersHierarchy(hierarchy, folderIdToFolder, coreToSpecObject, specObjectIdToFolder) {
+    private void getFoldersHierarchy(hierarchy, folderIdToFolder, idToSpec) {
         def folderId = hierarchy."rm:OBJECT"."rm:FOLDER-REF".text()
         def folder = folderIdToFolder[folderId]
         if(folder) {
             def children = hierarchy."rm:CHILDREN"
-            println "Processing ${children.size()} children of ${folder."@DESC"}"
             children.each {
-                processFoldersChildren(children, folderIdToFolder, folder, coreToSpecObject, specObjectIdToFolder)
+                processFoldersChildren(folder, children, folderIdToFolder, idToSpec)
             }
         } else {
             println "Folder with ID ${folderId} is unknown."
         }
     }
 
-    private void processFoldersChildren(children, folderIdToFolder, folder, coreToSpecObject, specObjectIdToFolder) {
+    private void processFoldersChildren(folder, children, folderIdToFolder, idToSpec) {
         def objects = children."rm:OBJECT"."rm:SPEC-OBJECT-REF"
-        objects.take(1).each {
-            def specObjectId = coreToSpecObject[it.text()]
-            if(specObjectId) {
-                specObjectIdToFolder.put(specObjectId, folder)
-            } else {
-                println "ERROR: Failed to load ID of Spec Object with core ID ${it.text()}."
-            }
+        def specifications = objects.collect {
+            //If SPEC-OBJECT-REF points to a specification child represents a module
+            idToSpec[it.text()]
+        }.grep().each {
+            def longName = it."@LONG-NAME"
+            def desc = folder.@DESC
+            it."@LONG-NAME" = "$longName ($desc)"
+            println "old: ${longName}, new:  ${it."@LONG-NAME"}"
         }
         def hierarchy = children."rm:FOLDER-HIERARCHY"
         hierarchy.each {
-            getFoldersHierarchy(it, folderIdToFolder, coreToSpecObject, specObjectIdToFolder)
+            getFoldersHierarchy(it, folderIdToFolder, idToSpec)
         }
     }
 
-    private def fillCoreToSpecObjectMap(xml) {
-        def extens = xml."TOOL-EXTENSIONS"."REQ-IF-TOOL-EXTENSION"."rm:ARTIFACT-EXTENSIONS"."rm:SPEC-OBJECT-EXTENSION"
-        def map = [:]
-        extens.each { exten ->
-            def coreId = exten."rm:CORE-SPEC-OBJECT-REF"?.text()
-            if (coreId) {
-                def specObjectId = exten."SPEC-OBJECT-REF"?.text()
-                map.put(coreId, specObjectId)
-            }
-        }
-        map
-    }
-
-    private def fillSpecificationData(xml) {
+    private def loadSpecificationData(xml) {
+        def idToSpec = [:]
         def specs = xml."CORE-CONTENT"."REQ-IF-CONTENT"."SPECIFICATIONS"."SPECIFICATION"
         println "Found ${specs.size()} specification(s)."
-        def map = [:]
         specs.each { spec ->
-            spec."CHILDREN"."SPEC-HIERARCHY"."OBJECT"."SPEC-OBJECT-REF".each {
-                map.put(it.text(), spec);
-            }
+           // println "${spec."@IDENTIFIER"} - ${spec."@LONG-NAME"}"
+            idToSpec.put(spec."@IDENTIFIER", spec)
         }
-        map
-    }
-
-    private def createSpecFolderPairs(specObjectIdToFolder, specObjectToSpec) {
-        def specFolderPairs = [:]
-        println "Processing ${specObjectIdToFolder.size()} folder(s)."
-        specObjectIdToFolder.each { specObjectId, folder ->
-            def spec = specObjectToSpec[specObjectId]
-            if (folder && spec) {
-                specFolderPairs.put(spec, folder)
-            } else if(folder) {
-                println "No specification found for folder ${folder.@DESC} and Spec Object ID ${specObjectId}."
-            }
-        }
-        specFolderPairs
+        idToSpec
     }
 
     private void replace(specFolderPairs) {
