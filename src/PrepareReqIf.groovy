@@ -30,6 +30,7 @@ class PrepareReqIf {
     private execute(xml) {
         def idToSpec = loadSpecificationData(xml)
         processFolders(xml, idToSpec)
+        removeLinkTypes(xml)
     }
 
     private def processFolders(xml, idToSpec) {
@@ -86,19 +87,23 @@ class PrepareReqIf {
         idToSpec
     }
 
-    private void replace(specFolderPairs) {
-        println "${specFolderPairs.size()} replaces"
-        specFolderPairs.each { spec, folder ->
-            def longName = spec."@LONG-NAME"
-            def desc = folder.@DESC
-            spec."@LONG-NAME" = createNewLongName(longName, desc)
-            println "old: ${longName}, new:  ${spec."@LONG-NAME"}"
-        }
-    }
+    private void removeLinkTypes(xml) {
+        def relationTypes = xml."CORE-CONTENT"."REQ-IF-CONTENT"."SPEC-TYPES"."SPEC-RELATION-TYPE"
+        println "Found ${relationTypes.size()} relation type(s)"
+        if(!relationTypes.isEmpty()) {
+            def first = relationTypes.get(0)
+            first."@LONG-NAME" = "Generic Relation"
 
-    private def createNewLongName(longName, desc) {
-        def path = (desc - ~/(\w+)[^\/]*$$/)[0..-2]
-        "${longName} (${path})"
+            def others = relationTypes.takeRight(relationTypes.size() - 1).each({
+                it.parent().remove(it)
+            })
+
+            def relations = xml."CORE-CONTENT"."REQ-IF-CONTENT"."SPEC-RELATIONS"."SPEC-RELATION".each({
+                it."TYPE"."SPEC-RELATION-TYPE-REF".get(0).setValue(first."@IDENTIFIER")
+            })
+
+
+        }
     }
 
     private Node open() {
